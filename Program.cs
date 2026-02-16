@@ -83,21 +83,14 @@ public class IsDayOffService : ICalendarService
     /// <inheritdoc />
     public async Task<CalendarData> GetCalendarDataAsync(int year)
     {
-        // Временные изменяемые списки для сбора данных
-        var nonworkingDays = new List<string>();
-        var nonworkingDays6 = new List<string>();
-        var workingDays = new List<string>();
-        var shortenedDays = new List<string>();
-        var shortenedDays6 = new List<string>();
-
         // Получение данных для 5-дневной недели (коллекция int)
         var baseYearData = await GetYearDataAsync(year, pre: true);
         // Получение данных для 6-дневной недели
         var sixDayWeekData = await GetYearDataAsync(year, sd: true, pre: true);
 
-        // Обработка обоих наборов данных с заполнением временных списков
-        ProcessYearData(year, baseYearData, sixDayWeekData,
-            nonworkingDays, nonworkingDays6, workingDays, shortenedDays, shortenedDays6);
+        // Обработка данных и получение готовых списков
+        var (nonworkingDays, nonworkingDays6, workingDays, shortenedDays, shortenedDays6) =
+            ProcessYearData(year, baseYearData, sixDayWeekData);
 
         // Создание неизменяемого объекта CalendarData
         return new CalendarData
@@ -140,99 +133,65 @@ public class IsDayOffService : ICalendarService
     }
 
     /// <summary>
-    /// Обрабатывает данные за год, заполняя списки нерабочих, рабочих и сокращённых дней.
+    /// Обрабатывает данные за год и возвращает готовые коллекции нерабочих, рабочих и сокращённых дней.
     /// </summary>
     /// <param name="year">Год.</param>
     /// <param name="baseData">Коды дней для 5-дневной недели.</param>
     /// <param name="sixDayData">Коды дней для 6-дневной недели.</param>
-    /// <param name="nonworkingDays">Список нерабочих дней (5-дневка).</param>
-    /// <param name="nonworkingDays6">Список нерабочих дней (6-дневка).</param>
-    /// <param name="workingDays">Список рабочих дней, выпадающих на выходные.</param>
-    /// <param name="shortenedDays">Список сокращённых дней (5-дневка).</param>
-    /// <param name="shortenedDays6">Список сокращённых дней (6-дневка).</param>
-    private void ProcessYearData(
-        int year,
-        IReadOnlyCollection<int> baseData,
-        IReadOnlyCollection<int> sixDayData,
-        List<string> nonworkingDays,
-        List<string> nonworkingDays6,
-        List<string> workingDays,
-        List<string> shortenedDays,
-        List<string> shortenedDays6)
+    /// <returns>Кортеж, содержащий пять списков строк (формат MMdd).</returns>
+    private static (List<string> NonworkingDays, List<string> NonworkingDays6, List<string> WorkingDays, List<string> ShortenedDays, List<string> ShortenedDays6)
+        ProcessYearData(int year, IReadOnlyCollection<int> baseData, IReadOnlyCollection<int> sixDayData)
     {
-        // Словари для хранения кодов дней по дате (MMdd)
-        var baseDayCodes = new Dictionary<string, int>();
-        var sixDayCodes = new Dictionary<string, int>();
+        // Используем HashSet для автоматического обеспечения уникальности
+        var nonworkingDays = new HashSet<string>();
+        var nonworkingDays6 = new HashSet<string>();
+        var workingDays = new HashSet<string>();
+        var shortenedDays = new HashSet<string>();
+        var shortenedDays6 = new HashSet<string>();
 
-        // Для удобства индексации преобразуем коллекции в массивы
         int[] baseArray = baseData.ToArray();
         int[] sixDayArray = sixDayData.ToArray();
 
-        // Заполнение словарей
         for (int i = 0; i < baseArray.Length; i++)
         {
-            DateOnly currentDate = new DateOnly(year, 1, 1);
-            currentDate = currentDate.AddDays(i);
+            DateOnly currentDate = new DateOnly(year, 1, 1).AddDays(i);
             string mmdd = currentDate.ToString("MMdd");
-            baseDayCodes[mmdd] = baseArray[i];
-        }
-
-        for (int i = 0; i < sixDayArray.Length; i++)
-        {
-            DateOnly currentDate = new(year, 1, 1);
-            currentDate = currentDate.AddDays(i);
-            string mmdd = currentDate.ToString("MMdd");
-            sixDayCodes[mmdd] = sixDayArray[i];
-        }
-
-        // Обработка каждого дня года
-        foreach (var kvp in baseDayCodes)
-        {
-            string mmdd = kvp.Key;
-            int baseCode = kvp.Value;
-            int sixDayCode = sixDayCodes[mmdd];
-
-            // Определение дня недели
-            DateOnly date = new(
-                year,
-                int.Parse(mmdd.Substring(0, 2)),
-                int.Parse(mmdd.Substring(2, 2)));
-            var dayOfWeek = (int)date.DayOfWeek; // 0 - воскресенье, 6 - суббота
+            int dayOfWeek = (int)currentDate.DayOfWeek; // 0 - воскресенье, 6 - суббота
 
             // Для 5-дневной недели
-            switch (baseCode)
+            switch (baseArray[i])
             {
-                case 1: // Нерабочий день (только праздники)
-                    if (!IsRegularWeekend(dayOfWeek, false))
-                    {
-                        AddIfNotExists(nonworkingDays, mmdd);
-                    }
+                case 1 when !IsRegularWeekend(dayOfWeek, false):
+                    nonworkingDays.Add(mmdd);
                     break;
-
-                case 2: // Сокращённый день
-                    AddIfNotExists(shortenedDays, mmdd);
+                case 2:
+                    shortenedDays.Add(mmdd);
                     break;
-
-                case 4: // Рабочий день в выходной (перенос)
-                    AddIfNotExists(workingDays, mmdd);
+                case 4:
+                    workingDays.Add(mmdd);
                     break;
             }
 
             // Для 6-дневной недели
-            switch (sixDayCode)
+            switch (sixDayArray[i])
             {
-                case 1: // Нерабочий день (для 6-дневки только воскресенья выходные)
-                    if (dayOfWeek is not 0) // 0 - воскресенье
-                    {
-                        AddIfNotExists(nonworkingDays6, mmdd);
-                    }
+                case 1 when dayOfWeek is not 0:
+                    nonworkingDays6.Add(mmdd);
                     break;
-
-                case 2: // Сокращённый день
-                    AddIfNotExists(shortenedDays6, mmdd);
+                case 2:
+                    shortenedDays6.Add(mmdd);
                     break;
             }
         }
+
+        // Сортируем и преобразуем в списки
+        return (
+            nonworkingDays.OrderBy(x => x).ToList(),
+            nonworkingDays6.OrderBy(x => x).ToList(),
+            workingDays.OrderBy(x => x).ToList(),
+            shortenedDays.OrderBy(x => x).ToList(),
+            shortenedDays6.OrderBy(x => x).ToList()
+        );
     }
 
     /// <summary>
@@ -241,25 +200,11 @@ public class IsDayOffService : ICalendarService
     /// <param name="dayOfWeek">Номер дня недели (0=вс, 6=сб).</param>
     /// <param name="isSixDayWeek">Признак шестидневной недели.</param>
     /// <returns>true, если день является стандартным выходным; иначе false.</returns>
-    private bool IsRegularWeekend(int dayOfWeek, bool isSixDayWeek)
+    private static bool IsRegularWeekend(int dayOfWeek, bool isSixDayWeek)
     {
         return isSixDayWeek
             ? dayOfWeek is 0          // только воскресенье
             : dayOfWeek is 0 or 6;    // суббота и воскресенье
-    }
-
-    /// <summary>
-    /// Добавляет дату в список, если она ещё не присутствует, и сортирует список.
-    /// </summary>
-    /// <param name="list">Список дат (формат MMdd).</param>
-    /// <param name="mmdd">Дата для добавления.</param>
-    private void AddIfNotExists(List<string> list, string mmdd)
-    {
-        if (!list.Contains(mmdd))
-        {
-            list.Add(mmdd);
-            list.Sort();
-        }
     }
 }
 
@@ -386,14 +331,24 @@ class Program
             int year = yearInput ?? GetYearFromUser();
 
             // Выбираем сервис
-            ICalendarService service = serviceName is not null
-                ? AvailableServices.FirstOrDefault(s => s.Name.Equals(serviceName, StringComparison.OrdinalIgnoreCase))
-                : GetServiceFromUser();
-
-            if (service is null)
+            ICalendarService service;
+            if (serviceName is not null)
             {
-                Console.WriteLine($"Сервис '{serviceName}' не найден. Используется сервис по умолчанию.");
-                service = AvailableServices[0];
+                // Используем промежуточную nullable переменную
+                ICalendarService? foundService = AvailableServices.FirstOrDefault(s => s.Name.Equals(serviceName, StringComparison.OrdinalIgnoreCase));
+                if (foundService is not null)
+                {
+                    service = foundService;
+                }
+                else
+                {
+                    Console.WriteLine($"Сервис '{serviceName}' не найден. Используется сервис по умолчанию.");
+                    service = AvailableServices[0];
+                }
+            }
+            else
+            {
+                service = GetServiceFromUser();
             }
 
             Console.WriteLine($"Используется сервис {service.Name}");
