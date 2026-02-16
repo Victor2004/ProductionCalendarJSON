@@ -6,34 +6,81 @@ using System.Linq;
 
 namespace CalendarGenerator;
 
+/// <summary>
+/// Представляет данные производственного календаря за указанный год.
+/// </summary>
 public class CalendarData
 {
+    /// <summary>
+    /// Год, для которого сгенерирован календарь.
+    /// </summary>
     public required int Year { get; init; }
+
+    /// <summary>
+    /// Нерабочие дни для 5-дневной рабочей недели (формат MMdd).
+    /// </summary>
     public required IReadOnlyCollection<string> NonworkingDays { get; init; }
+
+    /// <summary>
+    /// Нерабочие дни для 6-дневной рабочей недели (формат MMdd).
+    /// </summary>
     public required IReadOnlyCollection<string> NonworkingDays6 { get; init; }
+
+    /// <summary>
+    /// Рабочие дни, выпадающие на выходные (переносы, формат MMdd).
+    /// </summary>
     public required IReadOnlyCollection<string> WorkingDays { get; init; }
+
+    /// <summary>
+    /// Сокращённые рабочие дни для 5-дневной недели (формат MMdd).
+    /// </summary>
     public required IReadOnlyCollection<string> ShortenedDays { get; init; }
+
+    /// <summary>
+    /// Сокращённые рабочие дни для 6-дневной недели (формат MMdd).
+    /// </summary>
     public required IReadOnlyCollection<string> ShortenedDays6 { get; init; }
 }
 
+/// <summary>
+/// Интерфейс сервиса получения данных производственного календаря.
+/// </summary>
 public interface ICalendarService
 {
+    /// <summary>
+    /// Название сервиса.
+    /// </summary>
     string Name { get; }
+
+    /// <summary>
+    /// Получает данные календаря для указанного года.
+    /// </summary>
+    /// <param name="year">Год.</param>
+    /// <returns>Объект <see cref="CalendarData"/> с данными за год.</returns>
     Task<CalendarData> GetCalendarDataAsync(int year);
 }
 
+/// <summary>
+/// Реализация сервиса календаря на основе API isdayoff.ru.
+/// </summary>
 public class IsDayOffService : ICalendarService
 {
+    /// <inheritdoc />
     public string Name => "isdayoff.ru";
 
     private readonly HttpClient _httpClient;
 
+    /// <summary>
+    /// Инициализирует новый экземпляр класса <see cref="IsDayOffService"/>.
+    /// </summary>
+    /// <param name="httpClient">HTTP-клиент (опционально).</param>
     public IsDayOffService(HttpClient? httpClient = null)
     {
         _httpClient = httpClient ?? new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
     }
 
+    /// <inheritdoc />
     public async Task<CalendarData> GetCalendarDataAsync(int year)
     {
         // Временные изменяемые списки для сбора данных
@@ -64,22 +111,45 @@ public class IsDayOffService : ICalendarService
         };
     }
 
-    // Метод теперь возвращает коллекцию целых чисел
+    /// <summary>
+    /// Выполняет запрос к API isdayoff.ru и возвращает коллекцию кодов дней для указанного года.
+    /// </summary>
+    /// <param name="year">Год.</param>
+    /// <param name="sd">Признак шестидневной рабочей недели.</param>
+    /// <param name="pre">Признак учёта предпраздничных сокращённых дней.</param>
+    /// <returns>Коллекция целых чисел (0,1,2,4), соответствующих каждому дню года.</returns>
+    /// <exception cref="HttpRequestException">Ошибка HTTP-запроса.</exception>
     private async Task<IReadOnlyCollection<int>> GetYearDataAsync(int year, bool sd = false, bool pre = false)
     {
         var url = $"https://isdayoff.ru/api/getdata?year={year}&cc=ru";
-        if (sd) url += "&sd=1";
-        if (pre) url += "&pre=1";
+        if (sd)
+        {
+            url += "&sd=1";
+        }
+        if (pre)
+        {
+            url += "&pre=1";
+        }
 
         var response = await _httpClient.GetAsync(url);
         response.EnsureSuccessStatusCode();
         string content = await response.Content.ReadAsStringAsync();
 
-        // Преобразуем строку цифр в массив int
+        // Преобразование строки цифр в массив int
         return content.Select(c => c - '0').ToArray();
     }
 
-    // Принимает коллекции int вместо строк
+    /// <summary>
+    /// Обрабатывает данные за год, заполняя списки нерабочих, рабочих и сокращённых дней.
+    /// </summary>
+    /// <param name="year">Год.</param>
+    /// <param name="baseData">Коды дней для 5-дневной недели.</param>
+    /// <param name="sixDayData">Коды дней для 6-дневной недели.</param>
+    /// <param name="nonworkingDays">Список нерабочих дней (5-дневка).</param>
+    /// <param name="nonworkingDays6">Список нерабочих дней (6-дневка).</param>
+    /// <param name="workingDays">Список рабочих дней, выпадающих на выходные.</param>
+    /// <param name="shortenedDays">Список сокращённых дней (5-дневка).</param>
+    /// <param name="shortenedDays6">Список сокращённых дней (6-дневка).</param>
     private void ProcessYearData(
         int year,
         IReadOnlyCollection<int> baseData,
@@ -109,7 +179,7 @@ public class IsDayOffService : ICalendarService
 
         for (int i = 0; i < sixDayArray.Length; i++)
         {
-            DateOnly currentDate = new DateOnly(year, 1, 1);
+            DateOnly currentDate = new(year, 1, 1);
             currentDate = currentDate.AddDays(i);
             string mmdd = currentDate.ToString("MMdd");
             sixDayCodes[mmdd] = sixDayArray[i];
@@ -123,7 +193,8 @@ public class IsDayOffService : ICalendarService
             int sixDayCode = sixDayCodes[mmdd];
 
             // Определение дня недели
-            DateOnly date = new(year,
+            DateOnly date = new(
+                year,
                 int.Parse(mmdd.Substring(0, 2)),
                 int.Parse(mmdd.Substring(2, 2)));
             var dayOfWeek = (int)date.DayOfWeek; // 0 - воскресенье, 6 - суббота
@@ -137,9 +208,11 @@ public class IsDayOffService : ICalendarService
                         AddIfNotExists(nonworkingDays, mmdd);
                     }
                     break;
-                case 2: // Сокращенный день
+
+                case 2: // Сокращённый день
                     AddIfNotExists(shortenedDays, mmdd);
                     break;
+
                 case 4: // Рабочий день в выходной (перенос)
                     AddIfNotExists(workingDays, mmdd);
                     break;
@@ -154,22 +227,32 @@ public class IsDayOffService : ICalendarService
                         AddIfNotExists(nonworkingDays6, mmdd);
                     }
                     break;
-                case 2: // Сокращенный день
+
+                case 2: // Сокращённый день
                     AddIfNotExists(shortenedDays6, mmdd);
                     break;
             }
         }
     }
 
+    /// <summary>
+    /// Определяет, является ли день стандартным выходным для заданного типа недели.
+    /// </summary>
+    /// <param name="dayOfWeek">Номер дня недели (0=вс, 6=сб).</param>
+    /// <param name="isSixDayWeek">Признак шестидневной недели.</param>
+    /// <returns>true, если день является стандартным выходным; иначе false.</returns>
     private bool IsRegularWeekend(int dayOfWeek, bool isSixDayWeek)
     {
         return isSixDayWeek
-            // Для 6-дневной недели только воскресенье выходной
-            ? dayOfWeek is 0
-            // Для 5-дневной недели суббота и воскресенье выходные
-            : dayOfWeek is 0 or 6;
+            ? dayOfWeek is 0          // только воскресенье
+            : dayOfWeek is 0 or 6;    // суббота и воскресенье
     }
 
+    /// <summary>
+    /// Добавляет дату в список, если она ещё не присутствует, и сортирует список.
+    /// </summary>
+    /// <param name="list">Список дат (формат MMdd).</param>
+    /// <param name="mmdd">Дата для добавления.</param>
     private void AddIfNotExists(List<string> list, string mmdd)
     {
         if (!list.Contains(mmdd))
@@ -180,11 +263,15 @@ public class IsDayOffService : ICalendarService
     }
 }
 
-// Временные заглушки для других сервисов
+/// <summary>
+/// Пример реализации сервиса с тестовыми данными (заглушка).
+/// </summary>
 public class ExampleService1 : ICalendarService
 {
+    /// <inheritdoc />
     public string Name => "ExampleService1";
 
+    /// <inheritdoc />
     public Task<CalendarData> GetCalendarDataAsync(int year)
     {
         var nonworkingDays = new List<string> { "0101" };
@@ -202,10 +289,15 @@ public class ExampleService1 : ICalendarService
     }
 }
 
+/// <summary>
+/// Вторая примерная реализация сервиса (пустая заглушка).
+/// </summary>
 public class ExampleService2 : ICalendarService
 {
+    /// <inheritdoc />
     public string Name => "ExampleService2";
 
+    /// <inheritdoc />
     public Task<CalendarData> GetCalendarDataAsync(int year)
     {
         return Task.FromResult(new CalendarData
@@ -220,6 +312,9 @@ public class ExampleService2 : ICalendarService
     }
 }
 
+/// <summary>
+/// Основной класс программы, точка входа и обработка командной строки.
+/// </summary>
 class Program
 {
     private static readonly List<ICalendarService> AvailableServices = new()
@@ -229,6 +324,11 @@ class Program
         new ExampleService2()
     };
 
+    /// <summary>
+    /// Точка входа в приложение.
+    /// </summary>
+    /// <param name="args">Аргументы командной строки.</param>
+    /// <returns>Код возврата.</returns>
     static async Task<int> Main(string[] args)
     {
         var yearOption = new Option<int?>(
@@ -272,6 +372,12 @@ class Program
         return await rootCommand.InvokeAsync(args);
     }
 
+    /// <summary>
+    /// Генерирует календарь и сохраняет его в JSON-файл.
+    /// </summary>
+    /// <param name="yearInput">Год (может быть null, тогда запрашивается у пользователя).</param>
+    /// <param name="serviceName">Имя сервиса (может быть null, тогда выбирается пользователем).</param>
+    /// <param name="outputPath">Путь для сохранения (может быть null, тогда формируется автоматически).</param>
     private static async Task GenerateCalendarAsync(int? yearInput, string? serviceName, string? outputPath)
     {
         try
@@ -326,6 +432,10 @@ class Program
         }
     }
 
+    /// <summary>
+    /// Получает год от пользователя в интерактивном режиме.
+    /// </summary>
+    /// <returns>Выбранный год (от 2000 до 2100) или текущий год по умолчанию.</returns>
     private static int GetYearFromUser()
     {
         while (true)
@@ -348,6 +458,10 @@ class Program
         }
     }
 
+    /// <summary>
+    /// Предлагает пользователю выбрать сервис из списка доступных.
+    /// </summary>
+    /// <returns>Выбранный сервис.</returns>
     private static ICalendarService GetServiceFromUser()
     {
         Console.WriteLine("\nДоступные сервисы:");
@@ -375,6 +489,10 @@ class Program
         }
     }
 
+    /// <summary>
+    /// Выводит статистику по сгенерированному календарю.
+    /// </summary>
+    /// <param name="data">Данные календаря.</param>
     private static void PrintStatistics(CalendarData data)
     {
         Console.WriteLine("\nСтатистика:");
