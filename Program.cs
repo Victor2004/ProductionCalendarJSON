@@ -19,8 +19,7 @@ class Program
     private static readonly List<ICalendarService> AvailableServices = new()
     {
         new IsDayOffService(),
-        new ExampleService1(),
-        new ExampleService2()
+        new NalogRuParserService()
     };
 
     /// <summary>
