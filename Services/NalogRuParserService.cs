@@ -9,7 +9,7 @@ using CalendarGenerator.Dtos;
 namespace CalendarGenerator.Services;
 
 /// <summary>
-/// Парсер производственного календаря с сайта nalog-nalog.ru.
+/// Парсер производственного календаря с сайта nalog-nalog.ru
 /// </summary>
 public class NalogRuParserService : ICalendarService
 {
@@ -26,6 +26,14 @@ public class NalogRuParserService : ICalendarService
     private static readonly HashSet<(int Month, int Day)> OtherFixedHolidays = new()
     {
         (2, 23), (3, 8), (5, 1), (5, 9), (6, 12), (11, 4)
+    };
+
+    // Словарь для преобразования названий месяцев
+    private static readonly Dictionary<string, int> MonthNames = new()
+    {
+        ["январь"] = 1, ["февраль"] = 2, ["март"] = 3, ["апрель"] = 4,
+        ["май"] = 5, ["июнь"] = 6, ["июль"] = 7, ["август"] = 8,
+        ["сентябрь"] = 9, ["октябрь"] = 10, ["ноябрь"] = 11, ["декабрь"] = 12
     };
 
     public NalogRuParserService(HttpClient? httpClient = null)
@@ -62,7 +70,7 @@ public class NalogRuParserService : ICalendarService
     }
 
     /// <summary>
-    /// Парсит HTML-страницу календаря и возвращает сырые данные (без учёта фильтрации праздников).
+    /// Парсит HTML-страницу календаря и возвращает сырые данные (без учёта фильтрации праздников)
     /// </summary>
     private (HashSet<string> nonworking, HashSet<string> working, HashSet<string> shortened) ParseCalendarPage(
         string html, int year, bool isSixDayWeek)
@@ -71,8 +79,10 @@ public class NalogRuParserService : ICalendarService
         doc.LoadHtml(html);
 
         var monthNodes = doc.DocumentNode.SelectNodes("//div[contains(@class, 'calendar_month')]");
-        if (monthNodes == null)
+        if (monthNodes is null)
+        {
             return (new HashSet<string>(), new HashSet<string>(), new HashSet<string>());
+        }
 
         var nonworking = new HashSet<string>();
         var working = new HashSet<string>();
@@ -81,30 +91,47 @@ public class NalogRuParserService : ICalendarService
         foreach (var monthNode in monthNodes)
         {
             var monthNameNode = monthNode.SelectSingleNode(".//a[contains(@class, 'calendar_month_name')]");
-            if (monthNameNode == null) continue;
+            if (monthNameNode is null)
+            {
+                continue;
+            }
+
             string monthName = monthNameNode.InnerText.Trim();
-            int month = GetMonthNumber(monthName);
-            if (month == 0) continue;
+            if (!MonthNames.TryGetValue(monthName.ToLower(), out int month))
+            {
+                continue;
+            }
 
             var dayCells = monthNode.SelectNodes(".//div[contains(@class, 'calendar_day') and string-length(normalize-space(.)) > 0]");
-            if (dayCells == null) continue;
+            if (dayCells is null)
+            {
+                continue;
+            }
 
             foreach (var cell in dayCells)
             {
                 string dayText = cell.InnerText.Trim();
-                if (!int.TryParse(dayText, out int day)) continue;
+                if (!int.TryParse(dayText, out int day))
+                {
+                    continue;
+                }
 
                 string mmdd = $"{month:D2}{day:D2}";
                 var date = new DateOnly(year, month, day);
-                int dayOfWeek = (int)date.DayOfWeek; // 0 = воскресенье, 6 = суббота
+                DayOfWeek dayOfWeek = date.DayOfWeek;
 
-                bool isRegularWeekend = isSixDayWeek ? dayOfWeek == 0 : (dayOfWeek == 0 || dayOfWeek == 6);
+                bool isRegularWeekend = isSixDayWeek
+                    ? dayOfWeek is DayOfWeek.Sunday
+                    : dayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
 
+                // "holiday" – предпраздничный сокращённый день, "festive" – выходной праздничный день
                 if (cell.HasClass("holiday"))
                 {
                     shortened.Add(mmdd);
                     if (isRegularWeekend)
+                    {
                         working.Add(mmdd);
+                    }
                 }
                 else if (cell.HasClass("festive"))
                 {
@@ -113,7 +140,9 @@ public class NalogRuParserService : ICalendarService
                 else // обычный рабочий день
                 {
                     if (isRegularWeekend)
+                    {
                         working.Add(mmdd);
+                    }
                 }
             }
         }
@@ -125,7 +154,7 @@ public class NalogRuParserService : ICalendarService
     /// Формирует итоговый список нерабочих дней, комбинируя фиксированные праздники
     /// и данные из таблиц, с учётом регулярных выходных.
     /// </summary>
-    private List<string> BuildNonworkingDays(int year, HashSet<string> parsedFestive, bool isSixDayWeek)
+    private IReadOnlyCollection<string> BuildNonworkingDays(int year, HashSet<string> parsedFestive, bool isSixDayWeek)
     {
         var result = new HashSet<string>();
 
@@ -140,8 +169,11 @@ public class NalogRuParserService : ICalendarService
         foreach (var (month, day) in OtherFixedHolidays)
         {
             var date = new DateOnly(year, month, day);
-            int dayOfWeek = (int)date.DayOfWeek;
-            bool isRegularWeekend = isSixDayWeek ? dayOfWeek == 0 : (dayOfWeek == 0 || dayOfWeek == 6);
+            DayOfWeek dayOfWeek = date.DayOfWeek;
+            bool isRegularWeekend = isSixDayWeek
+                ? dayOfWeek is DayOfWeek.Sunday
+                : dayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+
             if (!isRegularWeekend)
             {
                 string mmdd = $"{month:D2}{day:D2}";
@@ -152,11 +184,17 @@ public class NalogRuParserService : ICalendarService
         // Дни из parsedFestive, не являющиеся регулярными выходными
         foreach (var mmdd in parsedFestive)
         {
-            int month = int.Parse(mmdd.Substring(0, 2));
-            int day = int.Parse(mmdd.Substring(2, 2));
+            if (mmdd.Length != 4 || !int.TryParse(mmdd.AsSpan(0, 2), out int month) || !int.TryParse(mmdd.AsSpan(2, 2), out int day))
+            {
+                continue;
+            }
+
             var date = new DateOnly(year, month, day);
-            int dayOfWeek = (int)date.DayOfWeek;
-            bool isRegularWeekend = isSixDayWeek ? dayOfWeek == 0 : (dayOfWeek == 0 || dayOfWeek == 6);
+            DayOfWeek dayOfWeek = date.DayOfWeek;
+            bool isRegularWeekend = isSixDayWeek
+                ? dayOfWeek is DayOfWeek.Sunday
+                : dayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+
             if (!isRegularWeekend)
             {
                 result.Add(mmdd);
@@ -164,25 +202,5 @@ public class NalogRuParserService : ICalendarService
         }
 
         return result.ToList();
-    }
-
-    private int GetMonthNumber(string monthName)
-    {
-        return monthName.Trim().ToLower() switch
-        {
-            "январь" => 1,
-            "февраль" => 2,
-            "март" => 3,
-            "апрель" => 4,
-            "май" => 5,
-            "июнь" => 6,
-            "июль" => 7,
-            "август" => 8,
-            "сентябрь" => 9,
-            "октябрь" => 10,
-            "ноябрь" => 11,
-            "декабрь" => 12,
-            _ => 0
-        };
     }
 }

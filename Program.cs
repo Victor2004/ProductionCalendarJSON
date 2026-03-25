@@ -12,21 +12,21 @@ using CalendarGenerator.Services;
 namespace CalendarGenerator;
 
 /// <summary>
-/// Основной класс программы, точка входа и обработка командной строки.
+/// Основной класс программы, точка входа и обработка командной строки
 /// </summary>
 class Program
 {
-    private static readonly List<ICalendarService> AvailableServices = new()
-    {
+    private static readonly List<ICalendarService> AvailableServices =
+    [
         new IsDayOffService(),
         new NalogRuParserService()
-    };
+    ];
 
     /// <summary>
-    /// Точка входа в приложение.
+    /// Точка входа в приложение
     /// </summary>
-    /// <param name="args">Аргументы командной строки.</param>
-    /// <returns>Код возврата.</returns>
+    /// <param name="args">Аргументы командной строки</param>
+    /// <returns>Код возврата</returns>
     static async Task<int> Main(string[] args)
     {
         var yearOption = new Option<int?>(
@@ -71,11 +71,11 @@ class Program
     }
 
     /// <summary>
-    /// Генерирует календарь и сохраняет его в JSON-файл.
+    /// Генерирует календарь и сохраняет его в JSON-файл
     /// </summary>
-    /// <param name="yearInput">Год (может быть null, тогда запрашивается у пользователя).</param>
-    /// <param name="serviceName">Имя сервиса (может быть null, тогда выбирается пользователем).</param>
-    /// <param name="outputPath">Путь для сохранения (может быть null, тогда формируется автоматически).</param>
+    /// <param name="yearInput">Год (может быть null, тогда запрашивается у пользователя)</param>
+    /// <param name="serviceName">Имя сервиса (может быть null, тогда выбирается пользователем)</param>
+    /// <param name="outputPath">Путь для сохранения (может быть null, тогда формируется автоматически)</param>
     private static async Task GenerateCalendarAsync(int? yearInput, string? serviceName, string? outputPath)
     {
         try
@@ -140,9 +140,9 @@ class Program
     }
 
     /// <summary>
-    /// Получает год от пользователя в интерактивном режиме.
+    /// Получает год от пользователя в интерактивном режиме
     /// </summary>
-    /// <returns>Выбранный год (от 2000 до 2100) или текущий год по умолчанию.</returns>
+    /// <returns>Выбранный год (от 2000 до 2100) или текущий год по умолчанию</returns>
     private static int GetYearFromUser()
     {
         while (true)
@@ -166,9 +166,9 @@ class Program
     }
 
     /// <summary>
-    /// Предлагает пользователю выбрать сервис из списка доступных.
+    /// Предлагает пользователю выбрать сервис из списка доступных
     /// </summary>
-    /// <returns>Выбранный сервис.</returns>
+    /// <returns>Выбранный сервис</returns>
     private static ICalendarService GetServiceFromUser()
     {
         Console.WriteLine("\nДоступные сервисы:");
@@ -197,9 +197,9 @@ class Program
     }
 
     /// <summary>
-    /// Выводит статистику по сгенерированному календарю.
+    /// Выводит статистику по сгенерированному календарю
     /// </summary>
-    /// <param name="data">Данные календаря.</param>
+    /// <param name="data">Данные календаря</param>
     private static void PrintStatistics(CalendarData data)
     {
         Console.WriteLine("\nСтатистика:");

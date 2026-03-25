@@ -8,7 +8,7 @@ using CalendarGenerator.Dtos;
 namespace CalendarGenerator.Services;
 
 /// <summary>
-/// Реализация сервиса календаря на основе API isdayoff.ru.
+/// Реализация сервиса календаря на основе API isdayoff.ru
 /// </summary>
 public class IsDayOffService : ICalendarService
 {
@@ -20,7 +20,7 @@ public class IsDayOffService : ICalendarService
     /// <summary>
     /// Инициализирует новый экземпляр класса <see cref="IsDayOffService"/>.
     /// </summary>
-    /// <param name="httpClient">HTTP-клиент (опционально).</param>
+    /// <param name="httpClient">HTTP-клиент (опционально)</param>
     public IsDayOffService(HttpClient? httpClient = null)
     {
         _httpClient = httpClient ?? new HttpClient();
@@ -52,14 +52,14 @@ public class IsDayOffService : ICalendarService
     }
 
     /// <summary>
-    /// Выполняет запрос к API isdayoff.ru и возвращает коллекцию кодов дней для указанного года.
+    /// Выполняет запрос к API isdayoff.ru и возвращает массив кодов дней для указанного года
     /// </summary>
-    /// <param name="year">Год.</param>
-    /// <param name="sd">Признак шестидневной рабочей недели.</param>
-    /// <param name="pre">Признак учёта предпраздничных сокращённых дней.</param>
-    /// <returns>Коллекция целых чисел (0,1,2,4), соответствующих каждому дню года.</returns>
-    /// <exception cref="HttpRequestException">Ошибка HTTP-запроса.</exception>
-    private async Task<IReadOnlyCollection<int>> GetYearDataAsync(int year, bool sd = false, bool pre = false)
+    /// <param name="year">Год</param>
+    /// <param name="sd">Признак шестидневной рабочей недели</param>
+    /// <param name="pre">Признак учёта предпраздничных сокращённых дней</param>
+    /// <returns>Массив целых чисел (0,1,2,4), соответствующих каждому дню года</returns>
+    /// <exception cref="HttpRequestException">Ошибка HTTP-запроса</exception>
+    private async Task<int[]> GetYearDataAsync(int year, bool sd = false, bool pre = false)
     {
         var url = $"https://isdayoff.ru/api/getdata?year={year}&cc=ru";
         if (sd)
@@ -80,14 +80,14 @@ public class IsDayOffService : ICalendarService
     }
 
     /// <summary>
-    /// Обрабатывает данные за год и возвращает готовые коллекции нерабочих, рабочих и сокращённых дней.
+    /// Обрабатывает данные за год и возвращает готовые коллекции нерабочих, рабочих и сокращённых дней
     /// </summary>
-    /// <param name="year">Год.</param>
-    /// <param name="baseData">Коды дней для 5-дневной недели.</param>
-    /// <param name="sixDayData">Коды дней для 6-дневной недели.</param>
-    /// <returns>Кортеж, содержащий пять списков строк (формат MMdd).</returns>
+    /// <param name="year">Год</param>
+    /// <param name="baseData">Коды дней для 5-дневной недели</param>
+    /// <param name="sixDayData">Коды дней для 6-дневной недели</param>
+    /// <returns>Кортеж, содержащий пять списков строк (формат MMdd)</returns>
     private static (List<string> NonworkingDays, List<string> NonworkingDays6, List<string> WorkingDays, List<string> ShortenedDays, List<string> ShortenedDays6)
-        ProcessYearData(int year, IReadOnlyCollection<int> baseData, IReadOnlyCollection<int> sixDayData)
+        ProcessYearData(int year, int[] baseData, int[] sixDayData)
     {
         // Используем HashSet для автоматического обеспечения уникальности
         var nonworkingDays = new HashSet<string>();
@@ -96,37 +96,34 @@ public class IsDayOffService : ICalendarService
         var shortenedDays = new HashSet<string>();
         var shortenedDays6 = new HashSet<string>();
 
-        int[] baseArray = baseData.ToArray();
-        int[] sixDayArray = sixDayData.ToArray();
-
-        for (int i = 0; i < baseArray.Length; i++)
+        for (int i = 0; i < baseData.Length; i++)
         {
             DateOnly currentDate = new(year, 1, 1);
             currentDate = currentDate.AddDays(i);
             string mmdd = currentDate.ToString("MMdd");
-            int dayOfWeek = (int)currentDate.DayOfWeek; // 0 - воскресенье, 6 - суббота
+            DayOfWeek dayOfWeek = currentDate.DayOfWeek;
 
             // Для 5-дневной недели
-            switch (baseArray[i])
+            switch (baseData[i])
             {
-                case 1 when !IsRegularWeekend(dayOfWeek, false):
+                case IsDayOffApiResponses.NonWorkingDay:
                     nonworkingDays.Add(mmdd);
                     break;
-                case 2:
+                case IsDayOffApiResponses.ShortenedDay:
                     shortenedDays.Add(mmdd);
                     break;
-                case 4:
+                case IsDayOffApiResponses.WorkingDayOnWeekend:
                     workingDays.Add(mmdd);
                     break;
             }
 
             // Для 6-дневной недели
-            switch (sixDayArray[i])
+            switch (sixDayData[i])
             {
-                case 1 when dayOfWeek is not 0:
+                case IsDayOffApiResponses.NonWorkingDay:
                     nonworkingDays6.Add(mmdd);
                     break;
-                case 2:
+                case IsDayOffApiResponses.ShortenedDay:
                     shortenedDays6.Add(mmdd);
                     break;
             }
@@ -140,18 +137,5 @@ public class IsDayOffService : ICalendarService
             shortenedDays.OrderBy(x => x).ToList(),
             shortenedDays6.OrderBy(x => x).ToList()
         );
-    }
-
-    /// <summary>
-    /// Определяет, является ли день стандартным выходным для заданного типа недели.
-    /// </summary>
-    /// <param name="dayOfWeek">Номер дня недели (0=вс, 6=сб).</param>
-    /// <param name="isSixDayWeek">Признак шестидневной недели.</param>
-    /// <returns>true, если день является стандартным выходным; иначе false.</returns>
-    private static bool IsRegularWeekend(int dayOfWeek, bool isSixDayWeek)
-    {
-        return isSixDayWeek
-            ? dayOfWeek is 0          // только воскресенье
-            : dayOfWeek is 0 or 6;    // суббота и воскресенье
     }
 }
